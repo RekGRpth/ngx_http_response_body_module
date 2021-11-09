@@ -22,6 +22,11 @@ typedef struct {
 
 
 typedef struct {
+    ngx_flag_t enable;
+} ngx_http_response_body_main_conf_t;
+
+
+typedef struct {
     ngx_http_response_body_loc_conf_t   *blcf;
     ngx_buf_t                            buffer;
 } ngx_http_response_body_ctx_t;
@@ -34,6 +39,7 @@ static ngx_int_t
 ngx_http_response_body_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 
+static void *ngx_http_response_body_create_main_conf(ngx_conf_t *cf);
 static void *ngx_http_response_body_create_loc_conf(ngx_conf_t *cf);
 static char *ngx_http_response_body_merge_loc_conf(ngx_conf_t *cf, void *parent,
     void *child);
@@ -177,7 +183,7 @@ static ngx_http_module_t  ngx_http_response_body_module_ctx = {
     ngx_http_response_body_add_variables,    /* preconfiguration */
     ngx_http_response_body_init,             /* postconfiguration */
 
-    NULL,                                    /* create main configuration */
+    ngx_http_response_body_create_main_conf, /* create main configuration */
     NULL,                                    /* init main configuration */
 
     NULL,                                    /* create server configuration */
@@ -233,6 +239,9 @@ ngx_conf_set_flag(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     blcf->capture_body = *fp;
 
+    ngx_http_response_body_main_conf_t *main = ngx_http_conf_get_module_main_conf(cf, ngx_http_response_body_module);
+    main->enable = 1;
+
     return NGX_CONF_OK;
 }
 
@@ -254,6 +263,9 @@ ngx_conf_set_msec(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         *fp = ngx_min(prev, *fp);
 
     blcf->capture_body = 1;
+
+    ngx_http_response_body_main_conf_t *main = ngx_http_conf_get_module_main_conf(cf, ngx_http_response_body_module);
+    main->enable = 1;
 
     return NGX_CONF_OK;
 }
@@ -287,6 +299,9 @@ ngx_conf_set_keyval(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return NGX_CONF_ERROR;
 
     blcf->capture_body = 1;
+
+    ngx_http_response_body_main_conf_t *main = ngx_http_conf_get_module_main_conf(cf, ngx_http_response_body_module);
+    main->enable = 1;
 
     return NGX_CONF_OK;
 }
@@ -361,6 +376,20 @@ ngx_http_response_body_request_var(ngx_conf_t *cf, ngx_command_t *cmd,
     var->data = 0;
 
     return NGX_CONF_OK;
+}
+
+
+static void *
+ngx_http_response_body_create_main_conf(ngx_conf_t *cf)
+{
+    ngx_http_response_body_main_conf_t  *bmcf;
+
+    bmcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_response_body_main_conf_t));
+
+    if (bmcf == NULL)
+        return NULL;
+
+    return bmcf;
 }
 
 
@@ -473,6 +502,9 @@ ngx_http_response_body_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 static ngx_int_t
 ngx_http_response_body_init(ngx_conf_t *cf)
 {
+    ngx_http_response_body_main_conf_t *main = ngx_http_conf_get_module_main_conf(cf, ngx_http_response_body_module);
+    if (!main->enable) return NGX_OK;
+
     ngx_http_next_header_filter = ngx_http_top_header_filter;
     ngx_http_top_header_filter = ngx_http_response_body_filter_header;
 
