@@ -668,7 +668,7 @@ ngx_http_response_body_filter_body(ngx_http_request_t *r, ngx_chain_t *in)
         len = r->headers_out.content_length_n == -1 ? conf->buffer_size_min
             : ngx_min((size_t) r->headers_out.content_length_n, conf->buffer_size);
 
-        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
+        ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
             "[ngx_http_response_body] content_length: %i",
                 r->headers_out.content_length_n);
 
@@ -691,7 +691,7 @@ ngx_http_response_body_filter_body(ngx_http_request_t *r, ngx_chain_t *in)
                 /* we may allocate more space */
                 len = ngx_min(conf->buffer_size,
                     conf->buffer_size_multiplier * (b->end - b->start));
-                ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
+                ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                     "[ngx_http_response_body] realloc: %ui -> %ui",
                     (b->end - b->start), len);
                 ngx_memzero(&new_buf, sizeof(ngx_buf_t));
