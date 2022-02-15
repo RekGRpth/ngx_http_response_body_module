@@ -517,6 +517,13 @@ ngx_http_response_body_init(ngx_conf_t *cf)
     if (ngx_http_next_body_filter == NULL)
         ngx_http_next_body_filter = ngx_http_next_body_filter_stub;
 
+    ngx_http_core_main_conf_t *cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
+    ngx_http_variable_t *v = cmcf->variables.elts;
+    for (ngx_uint_t i = 0; i < cmcf->variables.nelts; i++) {
+        if (ngx_strncasecmp(v[i].name.data, "sent_", sizeof("sent_") - 1)) continue;
+        v->flags |= NGX_HTTP_VAR_NOCACHEABLE;
+    }
+
     return NGX_OK;
 }
 
