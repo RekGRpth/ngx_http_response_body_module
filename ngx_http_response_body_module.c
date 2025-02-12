@@ -618,11 +618,12 @@ ngx_http_response_body_filter_body(ngx_http_request_t *r, ngx_chain_t *in)
     ngx_chain_t                        *cl;
     ngx_buf_t                          *b, new_buf;
     ngx_http_response_body_loc_conf_t  *conf;
-    size_t                              len;
-    ssize_t                             rest;
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_response_body_module);
-    if (ctx == NULL)
+    if (ctx == NULL
+        || in == NULL
+        || r->headers_out.content_length_n == 0
+        || !ngx_buf_in_memory(in->buf))
         return ngx_http_next_body_filter(r, in);
 
     conf = ngx_http_get_module_loc_conf(r, ngx_http_response_body_module);
@@ -631,14 +632,26 @@ ngx_http_response_body_filter_body(ngx_http_request_t *r, ngx_chain_t *in)
 
     if (b->start == NULL) {
 
-        /* initial buffer alloc */
-
-        len = r->headers_out.content_length_n == -1 ? conf->buffer_size_min
-            : ngx_min((size_t) r->headers_out.content_length_n, conf->buffer_size);
+        size_t len;
 
         ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
             "[ngx_http_response_body] content_length: %i",
                 r->headers_out.content_length_n);
+
+        /* initial buffer alloc */
+
+        if (r->headers_out.content_length_n > 0) {
+
+            /* fixed size */
+            len = ngx_min((size_t) r->headers_out.content_length_n,
+                          conf->buffer_size);
+        } else {
+
+            /* chunked response */
+            len = ngx_min(ngx_max(conf->buffer_size_min,
+                                  (size_t) (in->buf->last - in->buf->pos)),
+                          conf->buffer_size);
+        }
 
         b->start = ngx_palloc(r->pool, len);
         if (b->start == NULL)
@@ -648,47 +661,47 @@ ngx_http_response_body_filter_body(ngx_http_request_t *r, ngx_chain_t *in)
         b->pos = b->last = b->start;
     }
 
-    for (cl = in; cl; cl = cl->next) {
+    for (cl = in;
+         cl && ngx_buf_in_memory(cl->buf) && (size_t) (b->last - b->start) < conf->buffer_size;
+         cl = cl->next)
+    {
+        size_t extra = cl->buf->last - cl->buf->pos;
 
-        rest = b->end - b->last;
+        if (extra > (size_t) (b->end - b->last)) {
 
-        if (rest == 0) {
-            /* no space in buffer */
-            if ((size_t) (b->end - b->start) < conf->buffer_size
-                && r->headers_out.content_length_n == -1) {
-                /* we may allocate more space */
-                len = ngx_min(conf->buffer_size,
-                    conf->buffer_size_multiplier * (b->end - b->start));
+            /* we need to allocate more space */
+
+            size_t old_alloc = b->end - b->start;
+            size_t new_alloc = ngx_min(conf->buffer_size,
+                                    ngx_max(conf->buffer_size_multiplier * old_alloc,
+                                         old_alloc + extra));
+
+            if (old_alloc < new_alloc) {
+
                 ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
                     "[ngx_http_response_body] realloc: %ui -> %ui",
-                    (b->end - b->start), len);
+                        old_alloc, new_alloc);
+
                 ngx_memzero(&new_buf, sizeof(ngx_buf_t));
-                new_buf.start = ngx_palloc(r->pool, len);
+
+                new_buf.start = ngx_palloc(r->pool, new_alloc);
                 if (new_buf.start == NULL)
                     return NGX_ERROR;
-                new_buf.end = new_buf.start + len;
+
+                new_buf.end = new_buf.start + new_alloc;
                 new_buf.last = ngx_copy(new_buf.start, b->start,
-                    b->end - b->start);
+                                        b->last - b->start);
                 new_buf.pos = new_buf.start;
+
                 ngx_pfree(r->pool, b->start);
+
                 *b = new_buf;
-            } else
-                break;
+            }
         }
 
-        if (!ngx_buf_in_memory(cl->buf))
-            continue;
-
-        len = cl->buf->last - cl->buf->pos;
-
-        if (len == 0)
-            continue;
-
-        if (len > (size_t) rest)
-            /* we truncate the exceeding part of the response body */
-            len = rest;
-
-        b->last = ngx_copy(b->last, cl->buf->pos, len);
+        extra = ngx_min(extra, (size_t) (b->end - b->last));
+        if (extra > 0)
+            b->last = ngx_copy(b->last, cl->buf->pos, extra);
     }
 
     return ngx_http_next_body_filter(r, in);
